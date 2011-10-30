@@ -1,0 +1,8 @@
+LLP Socket Sender
+  -This script is a socket sender over LLP (Low Level Protocol)
+  - example call: perl llp_sender.pl -port 1234 -host localhost -path /home/user/files
+  - Dependencies: perl, IO::Socket, File::Slurp (should both be installed with perl)
+  - Cool stuff to do:
+       - ...send stuff over TCP?
+       - LLP is basically a level above TCP that wraps the data in hexidecimal headers/footers
+           such as 0x0B (beginning of message), 0x1C (end of message), and 0x0D (end of segment)
