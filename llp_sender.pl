@@ -1,18 +1,14 @@
-#######################################
-# Perl LLP Sender
-#  Marcus Young
-#  open source, just leave my name here
-#  don't be a dick
-#######################################
 #!/usr/bin/perl -w
 use strict;
 use File::Slurp;
 use IO::Socket;
 use Getopt::Long;
+use Term::ANSIColor;
 
 ##### Get option flags
 my($port,$path,$help,$host,$file);
-GetOptions('host:s' => \$host, 'port:s' => \$port,'path:s' => \$path, 'file:s' => \$file,'h' => \$help,'help' =>\$help);
+my $suffix="";
+GetOptions('host:s' => \$host, 'port:s' => \$port,'path:s' => \$path, 'file:s' => \$file, 'suffix:s' => \$suffix, 'h' => \$help,'help' =>\$help);
 
 
 #####   VERBOSE HELP STUFF - CHECK VALIDITY OF ARGUMENTS AND DISPLAY APROPRIATE HELP #####
@@ -20,9 +16,10 @@ my $error_str = '';
 if(defined($help)) {#user passed in -h flag
   $error_str .= "
 Arguments:
-   port - port of the receiver
-   host - hostname or IP of the receiver
-   path - path of the files to send
+   port   - port of the receiver
+   host   - hostname or IP of the receiver
+   path   - path of the files to send
+   suffix - suffix filter for files
    h or help - Help. Display this.\n\n";
   displayHelp($error_str);
 }
@@ -47,22 +44,18 @@ if(not(defined $path) && not(defined $file)) {
 displayHelp($error_str) if $error_str;#display help and quit if any conditions were met.
 
 sub displayHelp {
-  print "\nUsage: perl llp_sender.pl -port portnumber -host hostname -path /path/to/files\n".
-        "                                                            -file /path/to/file.txt\n";
+  print "\nUsage: perl llp_sender.pl -port portnumber -host hostname -suffix txt -path /path/to/files\n";
+  print "\n       perl llp_sender.pl -port portnumber -host hostname -file /path/to/file.txt\n";
   if(defined($_[0])) {
     print $_[0];
   }
   exit(0);
 }
 
-###################################################################
-#           START DOING ACTUAL STUFF                              #
-###################################################################
 my $socket;
 reconnect();
 start();
 
-# THIS FUNCTION RECONNECTS THE SOCKET
 sub reconnect {
   $socket = IO::Socket::INET->new(
     PeerAddr => "$host",
@@ -71,27 +64,30 @@ sub reconnect {
   ) or die "Can't bind : $@\n";
 }
 
-# THE ACTUAL RUN METHOD - SET UP RECONNECT FUNCTION ($SIG{'PIPE'}) AND SEND FILES
+# set up reconnect function ($SIG{'PIPE'}) and send files
 sub start {
   local $SIG{'PIPE'} = sub {
     print "Socket connection closed in start(), attemping to reconnect...\n";
     reconnect();  
   };
   if(defined $path) {
+    my $sum = 0;
     my @files = <$path/*>;
     foreach $file (@files) {
+      next unless ($file =~ /$suffix$/);
       my $contents = read_file($file);
-      send_file($file,$contents);
+      $sum += send_file($file,$contents);
     }
+    exit(1) if ($sum > 0);
+    exit(0);
   } elsif (defined $file) {
-    chomp(my $contents = read_file "$file");
-      send_file($file,$contents);
+    my $contents = read_file "$file";
+      exit(send_file($file,$contents));
   }
 }
 
-# SEND THE DATA WRAPPED IN HEX AND DETERMINE THE ACK
 sub send_file {
-  print "Sending $_[0].....";
+  print "$_[0]: ";
   $socket->send(chr(hex("0x0B")));
   $socket->send($_[1]);
   $socket->send(chr(hex("0x1C")));
@@ -99,8 +95,17 @@ sub send_file {
   sleep(1);
   my $ack;
   $socket->recv($ack,1024);
-  print "Message accepted\n" if($ack =~ /...AA/);
-  print "Message rejected\n" if($ack =~ /...AR/);
-  print "Message errored\n" if ($ack =~ /...AE/);
+  if($ack =~ /...AA/) {
+    print colored( "accepted" , 'green' ), "\n";
+    return 0;
+  }
+  elsif($ack =~ /...AE/) {
+    print colored( "errored" , 'red' ), "\n";
+    return 1;
+  }
+  elsif($ack =~ /...AR/) {
+    print colored( "rejected" , 'red' ), "\n";
+    return 2;
+  }
 }
 1;
